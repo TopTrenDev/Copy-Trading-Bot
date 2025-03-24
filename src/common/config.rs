@@ -5,8 +5,9 @@ use lazy_static::lazy_static;
 use reqwest::Error;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use solana_sdk::{bs58, commitment_config::CommitmentConfig, signature::Keypair, signer::Signer};
+use solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair, signer::Signer};
 use std::{env, sync::Arc};
+use teloxide::prelude::*;
 
 use crate::{
     common::{constants::INIT_MSG, logger::Logger},
@@ -140,7 +141,7 @@ pub struct SwapConfig {
 }
 
 pub fn import_env_var(key: &str) -> String {
-    env::var(key).unwrap_or_else(|_| panic!("Environment variable {} is not set", key))
+    env::var(key).unwrap_or_else(|e| panic!("Environment variable {} is not set: {}", key, e))
 }
 
 pub fn create_rpc_client() -> Result<Arc<solana_client::rpc_client::RpcClient>> {
@@ -178,4 +179,10 @@ pub fn import_wallet() -> Result<Arc<Keypair>> {
     let wallet: Keypair = Keypair::from_base58_string(priv_key.as_str());
 
     Ok(Arc::new(wallet))
+}
+
+pub fn tg_bot() -> Result<Bot> {
+    let bot_token = import_env_var("TG_TOKEN");
+    let bot = Bot::new(bot_token);
+    Ok(bot)
 }

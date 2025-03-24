@@ -30,17 +30,14 @@ pub async fn jito_confirm(
     recent_block_hash: &Hash,
     logger: &Logger,
 ) -> Result<Vec<String>> {
-    let (tip_account, tip1_account) = get_tip_account()?;
+    let tip_account = get_tip_account()?;
     let jito_client = Arc::new(JitoRpcClient::new(format!(
         "{}/api/v1/bundles",
         *jito::BLOCK_ENGINE_URL
     )));
     // jito tip, the upper limit is 0.1
-    let mut tip_value = get_tip_value().await.unwrap();
-    let tip = 0.0004_f64;
-    tip_value -= tip;
-    let tip_lamports = ui_amount_to_amount(tip, spl_token::native_mint::DECIMALS);
-    let tip_value_lamports = ui_amount_to_amount(tip_value, spl_token::native_mint::DECIMALS); // tip tx
+    let tip_value = get_tip_value().await.unwrap();
+    let tip_lamports = ui_amount_to_amount(tip_value, spl_token::native_mint::DECIMALS);
 
     let simulate_result = client.simulate_transaction(&version_tx)?;
     // logger.log("Tx Stimulate".to_string());
@@ -52,33 +49,15 @@ pub async fn jito_confirm(
     if let Some(err) = simulate_result.value.err {
         return Err(anyhow::anyhow!("{}", err));
     };
-    let bundle: Vec<VersionedTransaction> = if tip_value > 0_f64 {
-        vec![
-            version_tx,
-            VersionedTransaction::from(system_transaction::transfer(
-                keypair,
-                &tip_account,
-                tip_lamports,
-                *recent_block_hash,
-            )),
-            VersionedTransaction::from(system_transaction::transfer(
-                keypair,
-                &tip1_account,
-                tip_value_lamports,
-                *recent_block_hash,
-            )),
-        ]
-    } else {
-        vec![
-            version_tx,
-            VersionedTransaction::from(system_transaction::transfer(
-                keypair,
-                &tip_account,
-                tip_lamports,
-                *recent_block_hash,
-            )),
-        ]
-    };
+    let bundle: Vec<VersionedTransaction> = vec![
+        version_tx,
+        VersionedTransaction::from(system_transaction::transfer(
+            keypair,
+            &tip_account,
+            tip_lamports,
+            *recent_block_hash,
+        )),
+    ];
     let start_time = Instant::now();
     let bundle_id = jito_client.send_bundle(&bundle).await.unwrap();
     logger.log(
@@ -116,7 +95,7 @@ pub async fn new_signed_and_send(
     let tip_account = get_tip_account()?;
 
     // jito tip, the upper limit is 0.1
-    let mut tip_value = get_tip_value().await?;
+    let tip_value = get_tip_value().await?;
     let tip_lamports = ui_amount_to_amount(tip_value, spl_token::native_mint::DECIMALS);
 
     let jito_tip_instruction =

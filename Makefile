@@ -27,6 +27,11 @@ build-i686:
 clean:
 	$(CARGO) clean
 
+# Run the project
+.PHONY: run
+run:
+	$(CARGO) run
+
 # Start the server
 .PHONY: start
 start:

@@ -1,16 +1,14 @@
 use crate::{
-    common::{
-        config::{Config, SwapConfig, SUBSCRIPTION_MSG},
-        logger::Logger,
-    },
+    common::config::{Config, SwapConfig, SUBSCRIPTION_MSG},
     dex::pump_fun::Pump,
-    tg_bot::send_msg,
+    telegram::send_msg,
+    utils::file::{read_info, write_info},
 };
 use anyhow::Result;
 use chrono::Utc;
 use colored::Colorize;
 use futures_util::{stream::StreamExt, SinkExt};
-use serde_json::Value;
+use serde_json::{json, to_string, Value};
 use spl_token::amount_to_ui_amount;
 use teloxide::{types::ChatId, Bot};
 use tokio::time::Instant;
@@ -145,21 +143,26 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
         slippage,
         targetlist,
     } = &*config_guard;
-
-    print!({}, slippage);
+    println!("================================");
 
     // WebSocket setup
-    let (ws_stream, _) = connect_async(&*rpc_wss).await?;
+    let (ws_stream, _) = match connect_async(&*rpc_wss).await {
+        Ok(result) => result,
+        Err(e) => {
+            let error_msg = format!("Failed to connect to WebSocket '{}': {}", rpc_wss, e)
+                .red()
+                .to_string();
+            println!("{}", error_msg);
+            return Err(anyhow::anyhow!("WebSocket connection failed: {}", e));
+        }
+    };
     let (mut write, mut read) = ws_stream.split();
-    write
+    if let Err(e) = write
         .send(WsMessage::Text(SUBSCRIPTION_MSG.to_string().into()))
-        .await?;
-
-    let swapx = Pump::new(
-        app_state.rpc_nonblocking_client.clone(),
-        app_state.rpc_client.clone(),
-        app_state.wallet.clone(),
-    );
+        .await
+    {
+        println!("WS Error: {}", e);
+    }
 
     let prefix = "[PUMPFUN-MONITOR] => ".blue().bold().to_string();
     if let Err(e) = send_msg(
@@ -175,7 +178,42 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
 
     // Subscription loop
     while let Some(msg) = read.next().await {
+        // Read info from data.json
+        let mut info: Value = match read_info(None).await {
+            Ok(info) => info,
+            Err(e) => {
+                println!("Failed to read info: {}", e);
+                break;
+            }
+        };
+
+        if let Some(user_data) = info.get_mut(chat_id.to_string()) {
+            let usage = user_data.get("usage").and_then(|v| v.as_u64()).unwrap_or(0);
+            if usage > 2 {
+                if let Err(e) = send_msg(
+                    bot.clone(),
+                    chat_id,
+                    "[Expired] => ".red().bold().to_string(),
+                    "[Your credit limit has been exhausted]..."
+                        .red()
+                        .bold()
+                        .to_string(),
+                )
+                .await
+                {
+                    println!("Error: {}", e);
+                }
+                break;
+            }
+        }
+
         let msg = msg?;
+        let swapx = Pump::new(
+            app_state.rpc_nonblocking_client.clone(),
+            app_state.rpc_client.clone(),
+            app_state.wallet.clone(),
+        );
+
         if let WsMessage::Text(text) = msg {
             let start_time = Instant::now();
             let json: Value = match serde_json::from_str(&text) {
@@ -297,16 +335,48 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
                     let swapx_clone = swapx.clone();
                     let swap_config_clone = swap_config.clone();
                     let mint_str = trade_info.mint.clone();
+                    let chat_id_str = chat_id.to_string();
                     tokio::spawn(async move {
                         match swapx_clone
                             .swap_by_mint(&mint_str, swap_config_clone, start_time)
                             .await
                         {
                             Ok(res) => {
+                                // Update usage for this chat ID
+                                if let Some(user_data) = info.get_mut(&chat_id_str) {
+                                    let usage = user_data
+                                        .get("usage")
+                                        .and_then(|v| v.as_u64())
+                                        .unwrap_or(0)
+                                        + 1;
+                                    if let Some(obj) = user_data.as_object_mut() {
+                                        obj.insert("usage".to_string(), json!(usage));
+                                    }
+                                } else {
+                                    // If chat_id doesn't exist, create a new entry
+                                    info[&chat_id_str] = json!({ "usage": 1 });
+                                }
+
+                                // Write updated info back
+                                if let Err(e) =
+                                    write_info(to_string(&info).unwrap_or_default(), None).await
+                                {
+                                    println!("Failed to write info: {}", e);
+                                    return;
+                                }
+
+                                // Get usage for display (after update)
+                                let usage = info
+                                    .get(&chat_id_str)
+                                    .and_then(|v| v.get("usage"))
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(1);
+
                                 let message = format!(
-                                    "\n\t * [SUCCESSFUL-COPIED] => TX_HASH: (https://solscan.io/tx/{}) \n\t * [POOL] => ({}) \n\t * [COPIED] => {} :: ({:?}).",
-                                    &res[0], mint_str, Utc::now(), start_time.elapsed()
+                                    "\n\t * [SUCCESSFUL-COPIED] => TX_HASH: (https://solscan.io/tx/{}) \n\t * [POOL] => ({}) \n\t * [COPIED] => {} :: ({:?}). \n\t [USAGE] => {}",
+                                    &res[0], mint_str, Utc::now(), start_time.elapsed(), usage
                                 ).green().to_string();
+
                                 if let Err(e) =
                                     send_msg(bot_clone, chat_id, prefix_clone, message).await
                                 {

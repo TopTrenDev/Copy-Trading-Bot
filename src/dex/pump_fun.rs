@@ -320,14 +320,14 @@ impl Pump {
 
         // Expire Condition
         // -------------------
-        if swap_config.swap_direction == SwapDirection::Buy
-            && start_time.elapsed() > Duration::from_millis(700)
-        {
-            return Err(anyhow!("RPC connection is too busy. Expire this txn."
-                .red()
-                .italic()
-                .to_string()));
-        }
+        // if swap_config.swap_direction == SwapDirection::Buy
+        //     && start_time.elapsed() > Duration::from_millis(700)
+        // {
+        //     return Err(anyhow!("RPC connection is too busy. Expire this txn."
+        //         .red()
+        //         .italic()
+        //         .to_string()));
+        // }
 
         // Sign 'n Send Txn
         // --------------------

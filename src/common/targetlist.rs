@@ -1,5 +1,5 @@
-use std::fs::{self, File};
-use std::io::{self, BufRead, Write};
+use std::fs::{self};
+use std::io::{self, BufRead};
 
 #[derive(Clone)]
 pub struct Targetlist {

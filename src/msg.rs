@@ -31,7 +31,7 @@ impl From<SettingOp> for String {
 pub fn start_op_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new([
         vec![InlineKeyboardButton::callback("🟢 Run", StartOp::Run)],
-        vec![InlineKeyboardButton::callback("🛑 Stop", StartOp::Stop)],
+        // vec![InlineKeyboardButton::callback("🛑 Stop", StartOp::Stop)],
         vec![InlineKeyboardButton::callback(
             "⚙️ Setting",
             StartOp::Setting,

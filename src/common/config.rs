@@ -1,5 +1,4 @@
 use anyhow::Result;
-use colored::Colorize;
 use dotenv::dotenv;
 use lazy_static::lazy_static;
 use reqwest::Error;
@@ -11,7 +10,7 @@ use teloxide::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::{
-    common::{constants::INIT_MSG, logger::Logger},
+    common::logger::Logger,
     dex::pump_fun::PUMP_PROGRAM,
     engine::swap::{SwapDirection, SwapInType},
 };

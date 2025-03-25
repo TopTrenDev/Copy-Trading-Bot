@@ -1,4 +1,3 @@
-use colored::Colorize;
 use serde_json::{json, to_string, Value};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::{bs58, signature::Keypair, signer::Signer};
@@ -14,7 +13,6 @@ use teloxide::{
     utils::command::BotCommands,
 };
 
-use crate::common::config::Config;
 use crate::common::logger::Logger;
 use crate::engine::monitor::copytrader_pumpfun;
 use crate::msg::{setting_op_keyboard, start_op_keyboard, SettingOp, StartOp};
@@ -259,76 +257,85 @@ async fn add_wallet(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResu
     );
     bot.send_message(msg.chat.id, response).await?;
 
-    // dialogue.update(ChatState::Wallet { private_key: &private_key }).await?;
-
     Ok(())
 }
 
 async fn target_set(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
-    // Extract target address from message
-    let Some(target_address) = msg.text().map(ToOwned::to_owned) else {
-        bot.send_message(msg.chat.id, "Empty message error. Sorry, please try again")
-            .await?;
-        return Ok(());
-    };
+    let mut info = read_info(None).await?;
 
-    // Validate Solana public key (base58 decode and check length)
-    let pubkey_bytes = match bs58::decode(&target_address).into_vec() {
-        Ok(bytes) if bytes.len() == 32 => bytes,
-        Ok(bytes) => {
-            println!("Invalid Solana public key length: {} bytes", bytes.len());
-            bot.send_message(
-                msg.chat.id,
-                "Invalid Solana public key: incorrect length. Must be a 32-byte key.",
-            )
-            .await?;
+    // Check if chat ID already exists
+    let chat_id = dialogue.chat_id();
+    let user_info = info.get(chat_id.to_string());
+    if let Some(user_data) = user_info {
+        // Check for target_address
+        if user_data.get("target_address").is_some() {
+            bot.send_message(chat_id, "Target address is already set!")
+                .await?;
             return Ok(());
+        } else {
+            // Extract target address from message
+            let Some(target_address) = msg.text().map(ToOwned::to_owned) else {
+                bot.send_message(chat_id, "Empty message error. Sorry, please try again")
+                    .await?;
+                return Ok(());
+            };
+
+            // Validate Solana public key (base58 decode and check length)
+            let pubkey_bytes = match bs58::decode(&target_address).into_vec() {
+                Ok(bytes) if bytes.len() == 32 => bytes,
+                Ok(bytes) => {
+                    println!("Invalid Solana public key length: {} bytes", bytes.len());
+                    bot.send_message(
+                        chat_id,
+                        "Invalid Solana public key: incorrect length. Must be a 32-byte key.",
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("Failed to decode base58 public key: {}", e);
+                    bot.send_message(
+                        chat_id,
+                        format!(
+                "Invalid Solana public key format: {}. Must be a base58-encoded address.",
+                e
+            ),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            };
+
+            // Additional validation: try parsing as Pubkey
+            if Pubkey::try_from(pubkey_bytes.as_slice()).is_err() {
+                println!("Invalid Solana public key: not a valid Ed25519 key");
+                bot.send_message(
+                    msg.chat.id,
+                    "Invalid Solana public key: not a valid Ed25519 key.",
+                )
+                .await?;
+                return Ok(());
+            }
+
+            // Merge existing wallet data with new target_address
+            let mut info_data = info
+                .get(&chat_id.to_string())
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            if let Some(obj) = info_data.as_object_mut() {
+                obj.insert("target_address".to_string(), json!(&target_address));
+            } else {
+                info_data = json!({ "target_address": &target_address });
+            }
+            info[&chat_id.to_string()] = info_data;
+
+            write_info(to_string(&info)?, None).await?;
+
+            // Send success message with public key
+            let response = format!("🎯 Target Address\n {}\n is correctly set", target_address);
+            bot.send_message(msg.chat.id, response).await?;
         }
-        Err(e) => {
-            println!("Failed to decode base58 public key: {}", e);
-            bot.send_message(
-                msg.chat.id,
-                format!(
-                    "Invalid Solana public key format: {}. Must be a base58-encoded address.",
-                    e
-                ),
-            )
-            .await?;
-            return Ok(());
-        }
-    };
-
-    // Additional validation: try parsing as Pubkey
-    if Pubkey::try_from(pubkey_bytes.as_slice()).is_err() {
-        println!("Invalid Solana public key: not a valid Ed25519 key");
-        bot.send_message(
-            msg.chat.id,
-            "Invalid Solana public key: not a valid Ed25519 key.",
-        )
-        .await?;
-        return Ok(());
     }
-
-    let mut info: Value = read_info(None).await?;
-
-    let chat_id = msg.chat.id.to_string();
-
-    // Merge existing wallet data with new target_address
-    let mut info_data = info.get(&chat_id).cloned().unwrap_or_else(|| json!({}));
-    if let Some(obj) = info_data.as_object_mut() {
-        obj.insert("target_address".to_string(), json!(&target_address));
-    } else {
-        info_data = json!({ "target_address": &target_address });
-    }
-    info[&chat_id] = info_data;
-
-    write_info(to_string(&info)?, None).await?;
-
-    // Send success message with public key
-    let response = format!("🎯 Target Address\n {}\n is correctly set", target_address);
-    bot.send_message(msg.chat.id, response).await?;
-
-    // dialogue.update(ChatState::Wallet { private_key: &private_key }).await?;
 
     Ok(())
 }
@@ -372,7 +379,7 @@ async fn run_trading(bot: Bot, dialogue: MyDialogue) -> HandlerResult {
     Ok(())
 }
 
-async fn stop_trading(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
+async fn stop_trading(bot: Bot, _dialogue: MyDialogue, msg: Message) -> HandlerResult {
     let response = format!("stopped the trading");
     bot.send_message(msg.chat.id, response).await?;
 
@@ -380,10 +387,29 @@ async fn stop_trading(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerRe
 }
 
 pub async fn send_msg(bot: Bot, chat_id: ChatId, prefix: String, msg: String) -> HandlerResult {
-    let logger = Logger::new(prefix);
-    logger.log(msg.clone());
-    bot.send_message(chat_id, msg)
+    Logger::new(prefix.clone()).log(msg.clone());
+    bot.send_message(chat_id, strip_ansi_codes(&msg))
         .await
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
     Ok(())
+}
+
+fn strip_ansi_codes(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1B' {
+            // ANSI escape code starts with ESC (0x1B)
+            while let Some(next) = chars.next() {
+                if next == 'm' {
+                    // End of ANSI sequence
+                    break;
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }

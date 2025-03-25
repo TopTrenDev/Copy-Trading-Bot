@@ -34,14 +34,4 @@ impl Targetlist {
     pub fn is_listed_on_target(&self, address: &str) -> bool {
         self.addresses.contains(&address.to_string())
     }
-
-    pub fn write_file(file_path: &str, data: &str) -> io::Result<()> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(file_path)?;
-        file.write_all(data.as_bytes())?;
-        Ok(())
-    }
 }

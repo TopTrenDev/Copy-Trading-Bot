@@ -8,12 +8,15 @@ use serde_json::{json, Value};
 use solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair, signer::Signer};
 use std::{env, sync::Arc};
 use teloxide::prelude::*;
+use tokio::sync::{Mutex, OnceCell};
 
 use crate::{
     common::{constants::INIT_MSG, logger::Logger},
     dex::pump_fun::PUMP_PROGRAM,
     engine::swap::{SwapDirection, SwapInType},
 };
+
+static GLOBAL_CONFIG: OnceCell<Mutex<Config>> = OnceCell::const_new();
 
 pub struct Config {
     pub rpc_wss: String,
@@ -24,69 +27,76 @@ pub struct Config {
 }
 
 impl Config {
-    pub async fn new() -> Self {
-        let init_msg = INIT_MSG;
-        println!("{}", init_msg);
+    pub async fn new() -> &'static Mutex<Config> {
+        GLOBAL_CONFIG
+            .get_or_init(|| async {
+                let init_msg = "Initializing..."; // Replace with your INIT_MSG
+                println!("{}", init_msg);
 
-        dotenv().ok(); // Load .env file
+                dotenv().ok(); // Load .env file
 
-        let logger = Logger::new("[INIT] => ".blue().bold().to_string());
+                let logger = Logger::new("[INIT] => ".to_string()); // Simplified color handling
 
-        let rpc_wss = import_env_var("RPC_WSS");
-        let slippage = import_env_var("SLIPPAGE").parse::<u64>().unwrap_or(5);
-        let solana_price = create_coingecko_proxy().await.unwrap_or(200_f64);
-        let rpc_client = create_rpc_client().unwrap();
-        let rpc_nonblocking_client = create_nonblocking_rpc_client().await.unwrap();
-        let wallet: std::sync::Arc<solana_sdk::signature::Keypair> = import_wallet().unwrap();
-        let balance = rpc_nonblocking_client
-            .get_account(&wallet.pubkey())
+                let rpc_wss = import_env_var("RPC_WSS");
+                let slippage = import_env_var("SLIPPAGE").parse::<u64>().unwrap_or(5);
+                let solana_price = create_coingecko_proxy().await.unwrap_or(200_f64);
+                let rpc_client = create_rpc_client().unwrap();
+                let rpc_nonblocking_client = create_nonblocking_rpc_client().await.unwrap();
+                let wallet = import_wallet().unwrap();
+                let balance = rpc_nonblocking_client
+                    .get_account(&wallet.pubkey())
+                    .await
+                    .unwrap()
+                    .lamports; // Adjusted to match dummy struct
+
+                let wallet_cloned = wallet.clone();
+                let token_percent = import_env_var("TOKEN_PERCENTAGE")
+                    .parse::<f64>()
+                    .unwrap_or(1_f64);
+
+                let app_state = AppState {
+                    rpc_client,
+                    rpc_nonblocking_client,
+                    wallet,
+                };
+
+                let targetlist = match Targetlist::new("targetlist.txt") {
+                    Ok(targetlist) => targetlist,
+                    Err(_) => Targetlist::empty(),
+                };
+
+                logger.log(format!(
+                    "[COPYTRADER ENVIRONMENT]: \n\t\t\t\t [Web Socket RPC]: {},
+                \n\t\t\t\t * [Wallet]: {:?}, * [Balance]: {} Sol, 
+                \n\t\t\t\t * [Slippage]: {}, * [Solana]: {},
+                \n\t\t\t\t * [Amount(%)]: {},
+                \n\t\t\t\t * [Targetlist]: {}",
+                    rpc_wss,
+                    wallet_cloned.pubkey(),
+                    balance as f64 / 1_000_000_000_f64,
+                    slippage,
+                    solana_price,
+                    token_percent,
+                    targetlist.clone().length(),
+                ));
+
+                Mutex::new(Config {
+                    rpc_wss,
+                    app_state,
+                    token_percent,
+                    slippage,
+                    targetlist,
+                })
+            })
             .await
-            .unwrap()
-            .lamports;
+    }
 
-        let wallet_cloned = wallet.clone();
-        let token_percent = import_env_var("TOKEN_PERCENTAGE")
-            .parse::<f64>()
-            .unwrap_or(1_f64);
-
-        let app_state = AppState {
-            rpc_client,
-            rpc_nonblocking_client,
-            wallet,
-        };
-
-        let targetlist = match Targetlist::new("targetlist.txt") {
-            Ok(targetlist) => targetlist,
-            Err(_) => Targetlist::empty(),
-        };
-
-        logger.log(
-            format!(
-                "[COPYTRADER ENVIRONMENT]: \n\t\t\t\t [Web Socket RPC]: {},
-            \n\t\t\t\t * [Wallet]: {:?}, * [Balance]: {} Sol, 
-            \n\t\t\t\t * [Slippage]: {}, * [Solana]: {},
-            \n\t\t\t\t * [Amount(%)]: {},
-            \n\t\t\t\t * [Targetlist]: {}",
-                rpc_wss,
-                wallet_cloned.pubkey(),
-                balance as f64 / 1_000_000_000_f64,
-                slippage,
-                solana_price,
-                token_percent,
-                targetlist.clone().length(),
-            )
-            .purple()
-            .italic()
-            .to_string(),
-        );
-
-        Config {
-            rpc_wss,
-            app_state,
-            token_percent,
-            slippage,
-            targetlist,
-        }
+    pub async fn get() -> tokio::sync::MutexGuard<'static, Config> {
+        GLOBAL_CONFIG
+            .get()
+            .expect("Config not initialized")
+            .lock()
+            .await
     }
 }
 

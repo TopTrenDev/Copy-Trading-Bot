@@ -3,14 +3,14 @@ use raypump_copytrading_bot::{
         config::{tg_bot, Config},
         constants::RUN_MSG,
     },
-    tg_bot,
     engine::monitor::copytrader_pumpfun,
+    tg_bot,
 };
 
 #[tokio::main]
 async fn main() {
     /* Initial Settings */
-    let config = Config::new().await;
+    Config::new().await;
 
     /* Running Bot */
     let run_msg = RUN_MSG;

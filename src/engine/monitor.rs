@@ -141,7 +141,6 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
         app_state,
         token_percent,
         slippage,
-        targetlist,
     } = &*config_guard;
     println!("================================");
 
@@ -187,6 +186,8 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
             }
         };
 
+        let mut targetlist: Vec<String> = Vec::new();
+
         if let Some(user_data) = info.get_mut(chat_id.to_string()) {
             let usage = user_data.get("usage").and_then(|v| v.as_u64()).unwrap_or(0);
             if usage > 2 {
@@ -204,6 +205,12 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
                     println!("Error: {}", e);
                 }
                 break;
+            }
+
+            if let Some(target_address) = user_data.get("target_address").and_then(|v| v.as_str()) {
+                targetlist.push(target_address.to_string()); // Convert &str to String
+            } else {
+                println!("No valid target_address found for chat_id {}", chat_id);
             }
         }
 
@@ -260,7 +267,7 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
                     }
                 };
 
-                if targetlist.is_listed_on_target(&trade_info.target) {
+                if targetlist.contains(&trade_info.target) {
                     if let Err(e) = send_msg(
                         bot.clone(),
                         chat_id,

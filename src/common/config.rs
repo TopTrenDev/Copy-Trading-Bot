@@ -10,7 +10,7 @@ use teloxide::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::{
-    common::logger::Logger,
+    common::{constants::INIT_MSG, logger::Logger},
     dex::pump_fun::PUMP_PROGRAM,
     engine::swap::{SwapDirection, SwapInType},
 };
@@ -21,7 +21,6 @@ pub struct Config {
     pub rpc_wss: String,
     pub app_state: AppState,
     pub token_percent: f64,
-    pub targetlist: Targetlist,
     pub slippage: u64,
 }
 
@@ -29,7 +28,7 @@ impl Config {
     pub async fn new() -> &'static Mutex<Config> {
         GLOBAL_CONFIG
             .get_or_init(|| async {
-                let init_msg = "Initializing..."; // Replace with your INIT_MSG
+                let init_msg = INIT_MSG;
                 println!("{}", init_msg);
 
                 dotenv().ok(); // Load .env file
@@ -59,24 +58,17 @@ impl Config {
                     wallet,
                 };
 
-                let targetlist = match Targetlist::new("targetlist.txt") {
-                    Ok(targetlist) => targetlist,
-                    Err(_) => Targetlist::empty(),
-                };
-
                 logger.log(format!(
                     "[COPYTRADER ENVIRONMENT]: \n\t\t\t\t [Web Socket RPC]: {},
                 \n\t\t\t\t * [Wallet]: {:?}, * [Balance]: {} Sol, 
                 \n\t\t\t\t * [Slippage]: {}, * [Solana]: {},
-                \n\t\t\t\t * [Amount(%)]: {},
-                \n\t\t\t\t * [Targetlist]: {}",
+                \n\t\t\t\t * [Amount(%)]: {}",
                     rpc_wss,
                     wallet_cloned.pubkey(),
                     balance as f64 / 1_000_000_000_f64,
                     slippage,
                     solana_price,
                     token_percent,
-                    targetlist.clone().length(),
                 ));
 
                 Mutex::new(Config {
@@ -84,7 +76,6 @@ impl Config {
                     app_state,
                     token_percent,
                     slippage,
-                    targetlist,
                 })
             })
             .await
@@ -121,8 +112,6 @@ lazy_static! {
         ]
     });
 }
-
-use super::targetlist::Targetlist;
 
 #[derive(Deserialize)]
 struct CoinGeckoResponse {

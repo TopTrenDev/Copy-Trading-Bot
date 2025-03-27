@@ -128,16 +128,15 @@ impl Raydium {
             );
             if let Ok(token_account_info) = get_account_info(
                 self.rpc_nonblocking_client.clone(),
-                &mint_pubkey,
-                &token_account,
-                &logger,
+                mint_pubkey,
+                token_account,
             )
             .await
             {
                 let in_mint = get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
-                    &mint_pubkey,
+                    mint_pubkey,
                 )
                 .await?;
                 let amount = match swap_config.in_type {
@@ -288,9 +287,8 @@ impl Raydium {
                 // Create base ATA if it doesn't exist.
                 match get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    &token_out,
-                    &out_ata,
-                    &logger,
+                    token_out,
+                    out_ata,
                 )
                 .await
                 {
@@ -324,15 +322,14 @@ impl Raydium {
             SwapDirection::Sell => {
                 let in_account = get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    &token_in,
-                    &in_ata,
-                    &logger,
+                    token_in,
+                    in_ata,
                 )
                 .await?;
                 let in_mint = get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
-                    &token_in,
+                    token_in,
                 )
                 .await?;
 
@@ -572,9 +569,8 @@ impl Raydium {
                 // Create base ATA if it doesn't exist.
                 match get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    &token_out,
-                    &out_ata,
-                    &logger,
+                    token_out,
+                    out_ata,
                 )
                 .await
                 {
@@ -608,15 +604,14 @@ impl Raydium {
             SwapDirection::Sell => {
                 let in_account = get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    &token_in,
-                    &in_ata,
-                    &logger,
+                    token_in,
+                    in_ata,
                 )
                 .await?;
                 let in_mint = get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
-                    &token_in,
+                    token_in,
                 )
                 .await?;
 
@@ -848,9 +843,8 @@ impl Raydium {
                 // Create base ATA if it doesn't exist.
                 match get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    &token_out,
-                    &out_ata,
-                    &logger,
+                    token_out,
+                    out_ata,
                 )
                 .await
                 {
@@ -884,15 +878,14 @@ impl Raydium {
             SwapDirection::Sell => {
                 let in_account = get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    &token_in,
-                    &in_ata,
-                    &logger,
+                    token_in,
+                    in_ata,
                 )
                 .await?;
                 let in_mint = get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
-                    &token_in,
+                    token_in,
                 )
                 .await?;
 

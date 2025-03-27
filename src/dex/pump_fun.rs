@@ -80,8 +80,7 @@ impl Pump {
         };
         let pump_program = Pubkey::from_str(PUMP_PROGRAM)?;
         let (bonding_curve, associated_bonding_curve, bonding_curve_account) =
-            get_bonding_curve_account(self.rpc_client.clone().unwrap(), &mint, &pump_program)
-                .await?;
+            get_bonding_curve_account(self.rpc_client.clone().unwrap(), mint, pump_program).await?;
 
         let in_ata = token::get_associated_token_address(
             self.rpc_nonblocking_client.clone(),
@@ -104,9 +103,8 @@ impl Pump {
                 // Create base ATA if it doesn't exist.
                 match token::get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    &token_out,
-                    &out_ata,
-                    &logger,
+                    token_out,
+                    out_ata,
                 )
                 .await
                 {
@@ -136,19 +134,28 @@ impl Pump {
                 )
             }
             SwapDirection::Sell => {
-                let in_account = token::get_account_info(
+                let in_account_handle = tokio::spawn(token::get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    &token_in,
-                    &in_ata,
-                    &logger,
-                )
-                .await?;
-                let in_mint = token::get_mint_info(
+                    token_in,
+                    in_ata,
+                ));
+                let in_mint_handle = tokio::spawn(token::get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
-                    &token_in,
-                )
-                .await?;
+                    token_in,
+                ));
+                let (in_account, in_mint) =
+                    match tokio::try_join!(in_account_handle, in_mint_handle) {
+                        Ok((in_account_result, in_mint_result)) => {
+                            let in_account_result = in_account_result?;
+                            let in_mint_result = in_mint_result?;
+                            (in_account_result, in_mint_result)
+                        }
+                        Err(err) => {
+                            println!("Failed with {:?}, ", err);
+                            return Err(anyhow!(format!("{}", err)));
+                        }
+                    };
                 let amount = match swap_config.in_type {
                     SwapInType::Qty => {
                         ui_amount_to_amount(swap_config.amount_in, in_mint.base.decimals)
@@ -346,19 +353,45 @@ pub struct BondingCurveAccount {
 
 pub async fn get_bonding_curve_account(
     rpc_client: Arc<solana_client::rpc_client::RpcClient>,
-    mint: &Pubkey,
-    program_id: &Pubkey,
+    mint: Pubkey,
+    program_id: Pubkey,
 ) -> Result<(Pubkey, Pubkey, BondingCurveAccount)> {
-    let bonding_curve = get_pda(mint, program_id)?;
-    let associated_bonding_curve = get_associated_token_address(&bonding_curve, mint);
-    let bonding_curve_data = rpc_client
-        .get_account_data(&bonding_curve)
-        .inspect_err(|err| {
-            println!(
-                "Failed to get bonding curve account data: {}, err: {}",
-                bonding_curve, err
-            );
-        })?;
+    let bonding_curve = get_pda(&mint, &program_id)?;
+    let associated_bonding_curve = get_associated_token_address(&bonding_curve, &mint);
+    let start_time = Instant::now();
+    println!("mint: {}, Start: {:?}", mint, start_time.elapsed());
+
+    let max_retries = 30;
+    let time_exceed = 300;
+    let timeout = Duration::from_millis(time_exceed);
+    let mut retry_count = 0;
+    let bonding_curve_data = loop {
+        match rpc_client.get_account_data(&bonding_curve) {
+            Ok(data) => {
+                println!("Data: {:?}", data);
+                break data;
+            }
+            Err(err) => {
+                retry_count += 1;
+                if retry_count > max_retries {
+                    return Err(anyhow!(
+                        "Failed to get bonding curve account data after {} retries: {}",
+                        max_retries,
+                        err
+                    ));
+                }
+                if start_time.elapsed() > timeout {
+                    return Err(anyhow!(
+                        "Failed to get bonding curve account data after {:?} timeout: {}",
+                        timeout,
+                        err
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                println!("Retry {}: {:?}", retry_count, start_time.elapsed());
+            }
+        }
+    };
 
     let bonding_curve_account =
         from_slice::<BondingCurveAccount>(&bonding_curve_data).map_err(|e| {
@@ -389,7 +422,7 @@ pub async fn get_pump_info(
     let mint = Pubkey::from_str(mint)?;
     let program_id = Pubkey::from_str(PUMP_PROGRAM)?;
     let (bonding_curve, associated_bonding_curve, bonding_curve_account) =
-        get_bonding_curve_account(rpc_client, &mint, &program_id).await?;
+        get_bonding_curve_account(rpc_client, mint, program_id).await?;
 
     let pump_info = PumpInfo {
         mint: mint.to_string(),

@@ -354,23 +354,24 @@ async fn run_trading(bot: Bot, dialogue: MyDialogue) -> HandlerResult {
     if let Some(user_data) = user_info {
         // Check for private_key
         if user_data.get("private_key").is_none() {
-            bot.send_message(chat_id, "Your wallet didn't set up yet!")
+            bot.send_message(chat_id, "Your wallet has not been set up yet.")
+                .reply_markup(setting_op_keyboard())
                 .await?;
+            dialogue.update(ChatState::SettingCb).await?;
             return Ok(());
         }
 
         // Check for target_address
         if user_data.get("target_address").is_none() {
-            bot.send_message(
-                chat_id,
-                "The target address has not been configured yet.\n Please navigate to the Settings tab to specify it.",
-            )
-            .await?;
+            bot.send_message(chat_id, "The target address has not been configured yet.")
+                .reply_markup(setting_op_keyboard())
+                .await?;
+            dialogue.update(ChatState::SettingCb).await?;
             return Ok(());
         }
     } else {
         // No user info exists for this chat ID
-        bot.send_message(chat_id, "Your wallet has not been set up yet.\n Please navigate to the Settings tab to specify it.")
+        bot.send_message(chat_id, "Can't find your id.")
             .await?;
         return Ok(());
     }

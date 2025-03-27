@@ -182,13 +182,21 @@ async fn setting_cb(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> Handler
     if let Some(op) = &q.data {
         match serde_json::from_str(op)? {
             SettingOp::Wallet => {
+                let info = read_info(None).await?;
+
+                // Check if chat ID already exists
+                let chat_id = dialogue.chat_id().to_string();
+                if info.get(&chat_id).is_some() {
+                    bot.send_message(chat_id, "Your wallet is already imported")
+                        .await?;
+                    return Ok(());
+                }
                 let text = "Please input Your wallet\n";
                 bot.send_message(chat_id, text).await?;
                 dialogue.update(ChatState::AddWallet).await?;
             }
             SettingOp::Target => {
-                let text = "Wallet Target\n\
-                    Whale, Trader\n";
+                let text = "Target Wallet: Whale, Trader\n";
                 bot.send_message(chat_id, text).await?;
                 dialogue.update(ChatState::TargetSet).await?;
             }
@@ -202,11 +210,6 @@ async fn add_wallet(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResu
 
     // Check if chat ID already exists
     let chat_id = dialogue.chat_id().to_string();
-    if info.get(&chat_id).is_some() {
-        bot.send_message(chat_id, "Your wallet is already imported")
-            .await?;
-        return Ok(());
-    }
 
     // Extract private key from message
     let Some(private_key) = msg.text().map(ToOwned::to_owned) else {

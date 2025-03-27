@@ -160,7 +160,7 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
         .send(WsMessage::Text(SUBSCRIPTION_MSG.to_string().into()))
         .await
     {
-        println!("WS Error: {}", e);
+        println!("Failed to send subscription message: {}", e);
     }
 
     let prefix = "[PUMPFUN-MONITOR] => ".blue().bold().to_string();

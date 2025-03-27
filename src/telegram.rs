@@ -160,13 +160,12 @@ async fn start_cb(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> HandlerRe
         match serde_json::from_str(op)? {
             StartOp::Run => run_trading(bot, dialogue).await?,
             StartOp::Stop => {
-                let text = "Stopped the bot\n\
-                    Whale, Trader\n";
+                let text = "Stopped the bot\n";
                 bot.send_message(chat_id, text).await?;
                 dialogue.update(ChatState::StopTrading).await?;
             }
             StartOp::Setting => {
-                bot.send_message(chat_id, "Your bot setting")
+                bot.send_message(chat_id, "Configuration Settings for Your Bot")
                     .reply_markup(setting_op_keyboard())
                     .await?;
                 dialogue.update(ChatState::SettingCb).await?;
@@ -359,13 +358,16 @@ async fn run_trading(bot: Bot, dialogue: MyDialogue) -> HandlerResult {
 
         // Check for target_address
         if user_data.get("target_address").is_none() {
-            bot.send_message(chat_id, "Target address didn't set up yet!")
-                .await?;
+            bot.send_message(
+                chat_id,
+                "The target address has not been configured yet.\n Please navigate to the Settings tab to specify it.",
+            )
+            .await?;
             return Ok(());
         }
     } else {
         // No user info exists for this chat ID
-        bot.send_message(chat_id, "Your wallet didn't set up yet!")
+        bot.send_message(chat_id, "Your wallet has not been set up yet.\n Please navigate to the Settings tab to specify it.")
             .await?;
         return Ok(());
     }

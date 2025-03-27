@@ -57,6 +57,8 @@ spl-associated-token-account = { version = "2.2.0", features = [
 ] }
 spl-token-client = "=0.7.1"
 
+amm-cli = { git = "https://github.com/raydium-io/raydium-library" }
+common = { git = "https://github.com/raydium-io/raydium-library" }
 raydium_amm = { git = "https://github.com/raydium-io/raydium-amm", default-features = false, features = [
     "client",
 ] }

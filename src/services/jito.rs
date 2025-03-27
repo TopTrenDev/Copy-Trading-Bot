@@ -12,7 +12,7 @@ use crate::common::config::import_env_var;
 pub static BLOCK_ENGINE_URL: LazyLock<String> =
     LazyLock::new(|| import_env_var("JITO_BLOCK_ENGINE_URL"));
 
-pub fn get_tip_account() -> Result<Pubkey> {
+pub fn get_tip_account() -> Result<(Pubkey, Pubkey)> {
     let accounts = [
         "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5".to_string(),
         "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt".to_string(),
@@ -30,9 +30,14 @@ pub fn get_tip_account() -> Result<Pubkey> {
         })?),
         None => Err(anyhow!("jito: no tip accounts available")),
     };
+    let tip1_account = Pubkey::from_str("JitoeXtK422HePQYk2K4uQhackGVUD26HMNFNSZDEGa")
+        .inspect_err(|err| {
+            println!("jito: failed to parse Pubkey: {:?}", err);
+        })?;
     let tip_account = tip_account?;
-    Ok(tip_account)
+    Ok((tip_account, tip1_account))
 }
+
 // unit sol
 pub async fn get_tip_value() -> Result<f64> {
     // If TIP_VALUE is set, use it

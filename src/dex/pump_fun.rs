@@ -1,10 +1,8 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use borsh::from_slice;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
-use chrono::Utc;
-use colored::Colorize;
 use raydium_amm::math::U128;
 use serde::{Deserialize, Serialize};
 use solana_sdk::{
@@ -26,7 +24,6 @@ use crate::{
     core::{token, tx},
     engine::swap::{SwapDirection, SwapInType},
 };
-
 pub const TEN_THOUSAND: u64 = 10000;
 pub const TOKEN_PROGRAM: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 pub const RENT_PROGRAM: &str = "SysvarRent111111111111111111111111111111111";
@@ -65,59 +62,26 @@ impl Pump {
         swap_config: SwapConfig,
         start_time: Instant,
     ) -> Result<Vec<String>> {
-        let logger = Logger::new("[PUMPFUN-SWAP-BY-MINT] => ".blue().to_string());
-        logger.log(
-            format!(
-                "[SWAP-BEGIN]({}) - {} :: {:?}",
-                mint_str,
-                chrono::Utc::now(),
-                start_time.elapsed()
-            )
-            .yellow()
-            .to_string(),
-        );
-        // Constants
-        // ---------------------------------------------------
+        let logger = Logger::new(format!(
+            "[SWAP IN PUMPFUN BY MINT]({}:{:?}) => ",
+            chrono::Utc::now().timestamp(),
+            start_time.elapsed()
+        ));
         let slippage_bps = swap_config.slippage * 100;
         let owner = self.keypair.pubkey();
-        let mint = Pubkey::from_str(mint_str).map_err(|_| anyhow!(""))?;
+        let mint = Pubkey::from_str(mint_str)
+            .map_err(|e| anyhow!("failed to parse mint pubkey: {}", e))?;
         let program_id = spl_token::ID;
         let native_mint = spl_token::native_mint::ID;
+
         let (token_in, token_out, pump_method) = match swap_config.swap_direction {
             SwapDirection::Buy => (native_mint, mint, PUMP_BUY_METHOD),
             SwapDirection::Sell => (mint, native_mint, PUMP_SELL_METHOD),
         };
         let pump_program = Pubkey::from_str(PUMP_PROGRAM)?;
-
-        let mut create_instruction = None;
-        let mut close_instruction = None;
-
-        // RPC requests
-        // ---------------------------------------------------
-        let nonblocking_clinet_clone = self.rpc_nonblocking_client.clone();
-        let bonding_curve_handle = tokio::spawn(get_bonding_curve_account(
-            self.rpc_client.clone().unwrap(),
-            mint,
-            pump_program,
-        ));
-        let blockhash_handle =
-            tokio::spawn(async move { nonblocking_clinet_clone.get_latest_blockhash().await });
-        let ((bonding_curve, associated_bonding_curve, bonding_curve_account), recent_blockhash) =
-            match tokio::try_join!(bonding_curve_handle, blockhash_handle) {
-                Ok((bonding_curve_result, blockhash_result)) => {
-                    let bonding_curve_result = bonding_curve_result?;
-                    let blockhash_result = blockhash_result?;
-                    (bonding_curve_result, blockhash_result)
-                }
-                Err(err) => {
-                    logger.log(format!("Failed with {}, ", err).red().to_string());
-                    return Err(anyhow!(format!("{}", err)));
-                }
-            };
-
-        // Calculate tokens out
-        let virtual_sol_reserves = U128::from(bonding_curve_account.virtual_sol_reserves);
-        let virtual_token_reserves = U128::from(bonding_curve_account.virtual_token_reserves);
+        let (bonding_curve, associated_bonding_curve, bonding_curve_account) =
+            get_bonding_curve_account(self.rpc_client.clone().unwrap(), &mint, &pump_program)
+                .await?;
 
         let in_ata = token::get_associated_token_address(
             self.rpc_nonblocking_client.clone(),
@@ -125,7 +89,6 @@ impl Pump {
             &token_in,
             &owner,
         );
-
         let out_ata = token::get_associated_token_address(
             self.rpc_nonblocking_client.clone(),
             self.keypair.clone(),
@@ -133,24 +96,28 @@ impl Pump {
             &owner,
         );
 
-        let (amount_specified, _amount_ui_pretty) = match swap_config.swap_direction {
+        let mut create_instruction = None;
+        let mut close_instruction = None;
+
+        let (amount_specified, amount_ui_pretty) = match swap_config.swap_direction {
             SwapDirection::Buy => {
                 // Create base ATA if it doesn't exist.
-                // ----------------------------
                 match token::get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    token_out,
-                    out_ata,
+                    &token_out,
+                    &out_ata,
+                    &logger,
                 )
                 .await
                 {
                     Ok(_) => {
-                        // Base ata exists. skipping creation..
-                        // --------------------------
+                        // logger.log("Base ata exists. skipping creation..".to_string());
                     }
                     Err(TokenError::AccountNotFound) | Err(TokenError::AccountInvalidOwner) => {
-                        // "Base ATA for mint {} does not exist. will be create", token_out
-                        // --------------------------
+                        // logger.log(format!(
+                        //     "Base ATA for mint {} does not exist. will be create",
+                        //     token_out
+                        // ));
                         create_instruction = Some(create_associated_token_account(
                             &owner,
                             &owner,
@@ -159,38 +126,29 @@ impl Pump {
                         ));
                     }
                     Err(_) => {
-                        // Error retrieving out ATA
-                        // ---------------------------
+                        // logger.log(format!("Error retrieving out ATA: {}", error));
                     }
                 }
+
                 (
                     ui_amount_to_amount(swap_config.amount_in, spl_token::native_mint::DECIMALS),
                     (swap_config.amount_in, spl_token::native_mint::DECIMALS),
                 )
             }
             SwapDirection::Sell => {
-                let in_account_handle = tokio::spawn(token::get_account_info(
+                let in_account = token::get_account_info(
                     self.rpc_nonblocking_client.clone(),
-                    token_in,
-                    in_ata,
-                ));
-                let in_mint_handle = tokio::spawn(token::get_mint_info(
+                    &token_in,
+                    &in_ata,
+                    &logger,
+                )
+                .await?;
+                let in_mint = token::get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
-                    token_in,
-                ));
-                let (in_account, in_mint) =
-                    match tokio::try_join!(in_account_handle, in_mint_handle) {
-                        Ok((in_account_result, in_mint_result)) => {
-                            let in_account_result = in_account_result?;
-                            let in_mint_result = in_mint_result?;
-                            (in_account_result, in_mint_result)
-                        }
-                        Err(err) => {
-                            logger.log(format!("Failed with {}, ", err).red().to_string());
-                            return Err(anyhow!(format!("{}", err)));
-                        }
-                    };
+                    &token_in,
+                )
+                .await?;
                 let amount = match swap_config.in_type {
                     SwapInType::Qty => {
                         ui_amount_to_amount(swap_config.amount_in, in_mint.base.decimals)
@@ -198,8 +156,8 @@ impl Pump {
                     SwapInType::Pct => {
                         let amount_in_pct = swap_config.amount_in.min(1.0);
                         if amount_in_pct == 1.0 {
-                            // Sell all. will be close ATA for mint {token_in}
-                            // --------------------------------
+                            // logger
+                            //     .log(format!("Sell all. will be close ATA for mint {}", token_in));
                             close_instruction = Some(spl_token::instruction::close_account(
                                 &program_id,
                                 &in_ata,
@@ -223,9 +181,27 @@ impl Pump {
             }
         };
 
+        // logger.log(format!(
+        //     "swap: {}, value: {:?} -> {}",
+        //     token_in, amount_ui_pretty, token_out
+        // ));
+
+        let client = self
+            .rpc_client
+            .clone()
+            .context("failed to get rpc client")?;
+
+        // Calculate tokens out
+        let virtual_sol_reserves = U128::from(bonding_curve_account.virtual_sol_reserves);
+        let virtual_token_reserves = U128::from(bonding_curve_account.virtual_token_reserves);
+        let unit_price = (bonding_curve_account.virtual_sol_reserves as f64
+            / bonding_curve_account.virtual_token_reserves as f64)
+            / 1000.0;
+
         let (token_amount, sol_amount_threshold, input_accouts) = match swap_config.swap_direction {
             SwapDirection::Buy => {
                 let max_sol_cost = max_amount_with_slippage(amount_specified, slippage_bps);
+
                 (
                     U128::from(amount_specified)
                         .checked_mul(virtual_token_reserves)
@@ -283,14 +259,22 @@ impl Pump {
             }
         };
 
-        // Constants-Instruction Configuration
-        // -------------------
+        // logger.log(format!(
+        //     "token_amount: {}, sol_amount_threshold: {}, unit_price: {} sol",
+        //     token_amount, sol_amount_threshold, unit_price
+        // ));
+
         let build_swap_instruction = Instruction::new_with_bincode(
             pump_program,
             &(pump_method, token_amount, sol_amount_threshold),
             input_accouts,
         );
-
+        if swap_config.swap_direction == SwapDirection::Buy
+            && start_time.elapsed() > Duration::from_millis(700)
+        {
+            return Err(anyhow!("Long RPC Connection with Pool State."));
+        }
+        // build instructions
         let mut instructions = vec![];
         if let Some(create_instruction) = create_instruction {
             instructions.push(create_instruction);
@@ -302,39 +286,14 @@ impl Pump {
             instructions.push(close_instruction);
         }
         if instructions.is_empty() {
-            return Err(anyhow!("Instructions is empty, no txn required."
-                .red()
-                .italic()
-                .to_string()));
+            return Err(anyhow!("instructions is empty, no tx required"));
         }
-        logger.log(
-            format!(
-                "[BUILD-TXN]({}) - {} :: ({:?})",
-                mint_str,
-                Utc::now(),
-                start_time.elapsed()
-            )
-            .yellow()
-            .to_string(),
-        );
-
-        // Expire Condition
-        // -------------------
-        // if swap_config.swap_direction == SwapDirection::Buy
-        //     && start_time.elapsed() > Duration::from_millis(700)
-        // {
-        //     return Err(anyhow!("RPC connection is too busy. Expire this txn."
-        //         .red()
-        //         .italic()
-        //         .to_string()));
-        // }
-
-        // Sign 'n Send Txn
-        // --------------------
+        logger.log(format!("sending tx: {:?}", start_time.elapsed()));
         tx::new_signed_and_send(
-            recent_blockhash,
-            &self.keypair.clone(),
+            &client,
+            &self.keypair,
             instructions,
+            swap_config.use_jito,
             &logger,
         )
         .await
@@ -387,30 +346,19 @@ pub struct BondingCurveAccount {
 
 pub async fn get_bonding_curve_account(
     rpc_client: Arc<solana_client::rpc_client::RpcClient>,
-    mint: Pubkey,
-    program_id: Pubkey,
+    mint: &Pubkey,
+    program_id: &Pubkey,
 ) -> Result<(Pubkey, Pubkey, BondingCurveAccount)> {
-    let bonding_curve = get_pda(&mint, &program_id)?;
-    let associated_bonding_curve = get_associated_token_address(&bonding_curve, &mint);
-
-    let max_retries = 3;
-    let mut retry_count = 0;
-    let bonding_curve_data = loop {
-        match rpc_client.get_account_data(&bonding_curve) {
-            Ok(data) => break data,
-            Err(err) => {
-                retry_count += 1;
-                if retry_count > max_retries {
-                    return Err(anyhow!(
-                        "Failed to get bonding curve account data after {} retries: {}",
-                        max_retries,
-                        err
-                    ));
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        }
-    };
+    let bonding_curve = get_pda(mint, program_id)?;
+    let associated_bonding_curve = get_associated_token_address(&bonding_curve, mint);
+    let bonding_curve_data = rpc_client
+        .get_account_data(&bonding_curve)
+        .inspect_err(|err| {
+            println!(
+                "Failed to get bonding curve account data: {}, err: {}",
+                bonding_curve, err
+            );
+        })?;
 
     let bonding_curve_account =
         from_slice::<BondingCurveAccount>(&bonding_curve_data).map_err(|e| {
@@ -434,25 +382,25 @@ pub fn get_pda(mint: &Pubkey, program_id: &Pubkey) -> Result<Pubkey> {
 }
 
 // https://frontend-api.pump.fun/coins/8zSLdDzM1XsqnfrHmHvA9ir6pvYDjs8UXz6B2Tydd6b2
-// pub async fn get_pump_info(
-//     rpc_client: Arc<solana_client::rpc_client::RpcClient>,
-//     mint: str,
-// ) -> Result<PumpInfo> {
-//     let mint = Pubkey::from_str(&mint)?;
-//     let program_id = Pubkey::from_str(PUMP_PROGRAM)?;
-//     let (bonding_curve, associated_bonding_curve, bonding_curve_account) =
-//         get_bonding_curve_account(rpc_client, &mint, &program_id).await?;
+pub async fn get_pump_info(
+    rpc_client: Arc<solana_client::rpc_client::RpcClient>,
+    mint: &str,
+) -> Result<PumpInfo> {
+    let mint = Pubkey::from_str(mint)?;
+    let program_id = Pubkey::from_str(PUMP_PROGRAM)?;
+    let (bonding_curve, associated_bonding_curve, bonding_curve_account) =
+        get_bonding_curve_account(rpc_client, &mint, &program_id).await?;
 
-//     let pump_info = PumpInfo {
-//         mint: mint.to_string(),
-//         bonding_curve: bonding_curve.to_string(),
-//         associated_bonding_curve: associated_bonding_curve.to_string(),
-//         raydium_pool: None,
-//         raydium_info: None,
-//         complete: bonding_curve_account.complete,
-//         virtual_sol_reserves: bonding_curve_account.virtual_sol_reserves,
-//         virtual_token_reserves: bonding_curve_account.virtual_token_reserves,
-//         total_supply: bonding_curve_account.token_total_supply,
-//     };
-//     Ok(pump_info)
-// }
+    let pump_info = PumpInfo {
+        mint: mint.to_string(),
+        bonding_curve: bonding_curve.to_string(),
+        associated_bonding_curve: associated_bonding_curve.to_string(),
+        raydium_pool: None,
+        raydium_info: None,
+        complete: bonding_curve_account.complete,
+        virtual_sol_reserves: bonding_curve_account.virtual_sol_reserves,
+        virtual_token_reserves: bonding_curve_account.virtual_token_reserves,
+        total_supply: bonding_curve_account.token_total_supply,
+    };
+    Ok(pump_info)
+}

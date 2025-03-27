@@ -1,10 +1,10 @@
 use crate::{
-    common::{config::SwapConfig, logger::Logger},
     core::{
         token::{get_account_info, get_associated_token_address, get_mint_info},
         tx,
     },
     engine::swap::{SwapDirection, SwapInType},
+    utils::{config::SwapConfig, logger::Logger},
 };
 use amm_cli::AmmSwapInfoResult;
 use anyhow::{anyhow, Context, Result};
@@ -101,6 +101,8 @@ impl Raydium {
         swap_config: SwapConfig,
         mint: String,
         start_time: Instant,
+        jito_url: String,
+        jito_tip_amount: f64,
     ) -> Result<Vec<String>> {
         let logger = Logger::new(format!(
             "[SWAP IN JUPITER]({}:{:?}) => ",
@@ -205,6 +207,8 @@ impl Raydium {
                         let recent_blockhash =
                             VersionedMessage::recent_blockhash(&transaction.message);
                         let txn = tx::jito_confirm(
+                            jito_url,
+                            jito_tip_amount,
                             &self.rpc_client.clone().unwrap(),
                             wallet,
                             signed_tx,
@@ -225,6 +229,8 @@ impl Raydium {
         mint_str: &str,
         swap_config: SwapConfig,
         start_time: Instant,
+        jito_url: String,
+        jito_tip_amount: f64,
     ) -> Result<Vec<String>> {
         let logger = Logger::new(format!(
             "[SWAP IN RAYDIUM BY MINT]({}:{:?}) => ",
@@ -285,12 +291,8 @@ impl Raydium {
         let (amount_specified, _amount_ui_pretty) = match swap_config.swap_direction {
             SwapDirection::Buy => {
                 // Create base ATA if it doesn't exist.
-                match get_account_info(
-                    self.rpc_nonblocking_client.clone(),
-                    token_out,
-                    out_ata,
-                )
-                .await
+                match get_account_info(self.rpc_nonblocking_client.clone(), token_out, out_ata)
+                    .await
                 {
                     Ok(_) => {
                         // logger.log("Base ata exists. skipping creation..".to_string());
@@ -320,12 +322,8 @@ impl Raydium {
                 )
             }
             SwapDirection::Sell => {
-                let in_account = get_account_info(
-                    self.rpc_nonblocking_client.clone(),
-                    token_in,
-                    in_ata,
-                )
-                .await?;
+                let in_account =
+                    get_account_info(self.rpc_nonblocking_client.clone(), token_in, in_ata).await?;
                 let in_mint = get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
@@ -497,6 +495,8 @@ impl Raydium {
         }
         logger.log(format!("sending tx: {:?}", start_time.elapsed()));
         tx::new_signed_and_send(
+            jito_url,
+            jito_tip_amount,
             &client,
             &self.keypair,
             instructions,
@@ -512,6 +512,8 @@ impl Raydium {
         amm_pool_id: Pubkey,
         pool_state: AmmInfo,
         start_time: Instant,
+        jito_url: String,
+        jito_tip_amount: f64,
     ) -> Result<Vec<String>> {
         let logger = Logger::new(format!(
             "[SWAP IN RAYDIUM]({}:{:?}) => ",
@@ -567,12 +569,8 @@ impl Raydium {
         let (amount_specified, _amount_ui_pretty) = match swap_config.swap_direction {
             SwapDirection::Buy => {
                 // Create base ATA if it doesn't exist.
-                match get_account_info(
-                    self.rpc_nonblocking_client.clone(),
-                    token_out,
-                    out_ata,
-                )
-                .await
+                match get_account_info(self.rpc_nonblocking_client.clone(), token_out, out_ata)
+                    .await
                 {
                     Ok(_) => {
                         logger.log("Base ata exists. skipping creation..".to_string());
@@ -602,12 +600,8 @@ impl Raydium {
                 )
             }
             SwapDirection::Sell => {
-                let in_account = get_account_info(
-                    self.rpc_nonblocking_client.clone(),
-                    token_in,
-                    in_ata,
-                )
-                .await?;
+                let in_account =
+                    get_account_info(self.rpc_nonblocking_client.clone(), token_in, in_ata).await?;
                 let in_mint = get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
@@ -773,6 +767,8 @@ impl Raydium {
             return Err(anyhow!("instructions is empty, no tx required"));
         }
         tx::new_signed_and_send(
+            jito_url,
+            jito_tip_amount,
             &client,
             &self.keypair,
             instructions,
@@ -782,7 +778,13 @@ impl Raydium {
         .await
     }
 
-    pub async fn swap_test(&self, mint_str: &str, swap_config: SwapConfig) -> Result<Vec<String>> {
+    pub async fn swap_test(
+        &self,
+        mint_str: &str,
+        swap_config: SwapConfig,
+        jito_url: String,
+        jito_tip_amount: f64,
+    ) -> Result<Vec<String>> {
         let logger = Logger::new(format!(
             "[SWAP IN RAYDIUM]({}) => ",
             chrono::Utc::now().timestamp(),
@@ -841,12 +843,8 @@ impl Raydium {
         let (amount_specified, _amount_ui_pretty) = match swap_config.swap_direction {
             SwapDirection::Buy => {
                 // Create base ATA if it doesn't exist.
-                match get_account_info(
-                    self.rpc_nonblocking_client.clone(),
-                    token_out,
-                    out_ata,
-                )
-                .await
+                match get_account_info(self.rpc_nonblocking_client.clone(), token_out, out_ata)
+                    .await
                 {
                     Ok(_) => {
                         logger.log("Base ata exists. skipping creation..".to_string());
@@ -876,12 +874,8 @@ impl Raydium {
                 )
             }
             SwapDirection::Sell => {
-                let in_account = get_account_info(
-                    self.rpc_nonblocking_client.clone(),
-                    token_in,
-                    in_ata,
-                )
-                .await?;
+                let in_account =
+                    get_account_info(self.rpc_nonblocking_client.clone(), token_in, in_ata).await?;
                 let in_mint = get_mint_info(
                     self.rpc_nonblocking_client.clone(),
                     self.keypair.clone(),
@@ -1047,6 +1041,8 @@ impl Raydium {
             return Err(anyhow!("instructions is empty, no tx required"));
         }
         tx::new_signed_and_send(
+            jito_url,
+            jito_tip_amount,
             &client,
             &self.keypair,
             instructions,

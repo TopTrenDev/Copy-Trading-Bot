@@ -13,10 +13,14 @@ use teloxide::{
     utils::command::BotCommands,
 };
 
-use crate::common::logger::Logger;
-use crate::engine::monitor::copytrader_pumpfun;
-use crate::msg::{setting_op_keyboard, start_op_keyboard, SettingOp, StartOp};
-use crate::utils::file::{read_info, write_info};
+use crate::{
+    engine::monitor::copytrader_pumpfun,
+    msg::{setting_op_keyboard, start_op_keyboard, SettingOp, StartOp},
+    utils::{
+        file::{read_info, write_info},
+        logger::Logger,
+    },
+};
 
 type MyDialogue = Dialogue<ChatState, InMemStorage<ChatState>>;
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -371,8 +375,7 @@ async fn run_trading(bot: Bot, dialogue: MyDialogue) -> HandlerResult {
         }
     } else {
         // No user info exists for this chat ID
-        bot.send_message(chat_id, "Can't find your id.")
-            .await?;
+        bot.send_message(chat_id, "Can't find your id.").await?;
         return Ok(());
     }
 

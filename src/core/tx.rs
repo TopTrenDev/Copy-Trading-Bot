@@ -16,10 +16,8 @@ use jito_json_rpc_client::jsonrpc_client::rpc_client::RpcClient as JitoRpcClient
 use tokio::time::Instant;
 
 use crate::{
-    common::logger::Logger,
-    services::jito::{
-        self, get_tip_account, get_tip_value, wait_for_bundle_confirmation, JitoClient,
-    },
+    services::jito::{get_tip_account, wait_for_bundle_confirmation, JitoClient},
+    utils::logger::Logger,
 };
 
 fn get_unit_price() -> u64 {
@@ -37,36 +35,31 @@ fn get_unit_limit() -> u32 {
 }
 
 pub async fn jito_confirm(
+    jito_url: String,
+    jito_tip_amount: f64,
     client: &RpcClient,
     keypair: &Keypair,
     version_tx: VersionedTransaction,
     recent_block_hash: &Hash,
     logger: &Logger,
 ) -> Result<Vec<String>> {
-    let (tip_account, tip1_account) = get_tip_account()?;
-    let jito_client = Arc::new(JitoRpcClient::new(format!(
-        "{}/api/v1/bundles",
-        *jito::BLOCK_ENGINE_URL
-    )));
+    let tip_account = get_tip_account()?;
+    let jito_client = Arc::new(JitoRpcClient::new(format!("{}/api/v1/bundles", jito_url)));
     // jito tip, the upper limit is 0.1
-    let mut tip_value = get_tip_value().await.unwrap();
-    let tip = 0.0004_f64;
-    tip_value -= tip;
-    let tip_lamports = ui_amount_to_amount(tip, spl_token::native_mint::DECIMALS);
-    let tip_value_lamports = ui_amount_to_amount(tip_value, spl_token::native_mint::DECIMALS); // tip tx
+    let tip_value = jito_tip_amount;
+    let tip_lamports = ui_amount_to_amount(tip_value, spl_token::native_mint::DECIMALS);
 
-    let simulate_result = client.simulate_transaction(&version_tx)?;
+    // let simulate_result = client.simulate_transaction(&version_tx)?;
     // logger.log("Tx Stimulate".to_string());
     // if let Some(logs) = simulate_result.value.logs {
     //     for log in logs {
     //         logger.log(log.to_string());
     //     }
     // }
-    if let Some(err) = simulate_result.value.err {
-        return Err(anyhow::anyhow!("{}", err));
-    };
-    let bundle: Vec<VersionedTransaction> = if tip_value > 0_f64 {
-        vec![
+    // if let Some(err) = simulate_result.value.err {
+    //     return Err(anyhow::anyhow!("{}", err));
+    // };
+    let bundle: Vec<VersionedTransaction> = vec![
             version_tx,
             VersionedTransaction::from(system_transaction::transfer(
                 keypair,
@@ -74,24 +67,7 @@ pub async fn jito_confirm(
                 tip_lamports,
                 *recent_block_hash,
             )),
-            VersionedTransaction::from(system_transaction::transfer(
-                keypair,
-                &tip1_account,
-                tip_value_lamports,
-                *recent_block_hash,
-            )),
-        ]
-    } else {
-        vec![
-            version_tx,
-            VersionedTransaction::from(system_transaction::transfer(
-                keypair,
-                &tip_account,
-                tip_lamports,
-                *recent_block_hash,
-            )),
-        ]
-    };
+        ];
     let start_time = Instant::now();
     let bundle_id = jito_client.send_bundle(&bundle).await.unwrap();
     logger.log(format!(
@@ -99,25 +75,28 @@ pub async fn jito_confirm(
         bundle_id,
         start_time.elapsed()
     ));
-    wait_for_bundle_confirmation(
-        move |id: String| {
-            let client = Arc::clone(&jito_client);
-            async move {
-                let response = client.get_bundle_statuses(&[id]).await;
-                let statuses = response.inspect_err(|err| {
-                    println!("Error fetching bundle status: {:?}", err);
-                })?;
-                Ok(statuses.value)
-            }
-        },
-        bundle_id,
-        Duration::from_millis(1000),
-        Duration::from_secs(10),
-    )
-    .await
+    Ok(vec![bundle_id])
+    // wait_for_bundle_confirmation(
+    //     move |id: String| {
+    //         let client = Arc::clone(&jito_client);
+    //         async move {
+    //             let response = client.get_bundle_statuses(&[id]).await;
+    //             let statuses = response.inspect_err(|err| {
+    //                 println!("Error fetching bundle status: {:?}", err);
+    //             })?;
+    //             Ok(statuses.value)
+    //         }
+    //     },
+    //     bundle_id,
+    //     Duration::from_millis(1000),
+    //     Duration::from_secs(10),
+    // )
+    // .await
 }
 
 pub async fn new_signed_and_send(
+    jito_url: String,
+    jito_tip_amount: f64,
     client: &RpcClient,
     keypair: &Keypair,
     mut instructions: Vec<Instruction>,
@@ -141,30 +120,18 @@ pub async fn new_signed_and_send(
 
     let mut txs = vec![];
     if use_jito {
-        let (tip_account, tip1_account) = get_tip_account()?;
+        let tip_account = get_tip_account()?;
         // let jito_client = Arc::new(JitoRpcClient::new(format!(
         //     "{}/api/v1/bundles",
         //     *jito::BLOCK_ENGINE_URL
         // )));
         // jito tip, the upper limit is 0.1
-        let mut tip_value = get_tip_value().await?;
-        let tip = 0.0004_f64;
-        tip_value -= tip;
-        let tip_lamports = ui_amount_to_amount(tip, spl_token::native_mint::DECIMALS);
-        let tip_value_lamports = ui_amount_to_amount(tip_value, spl_token::native_mint::DECIMALS);
-        // logger.log(format!(
-        //     "tip account: {}, tip(sol): {}, lamports: {}",
-        //     tip_account, tip, tip_lamports
-        // ));
+        let tip_value = jito_tip_amount;
+        let tip_lamports = ui_amount_to_amount(tip_value, spl_token::native_mint::DECIMALS);
 
         let jito_tip_instruction =
             system_instruction::transfer(&keypair.pubkey(), &tip_account, tip_lamports);
         instructions.push(jito_tip_instruction);
-        if tip_value > 0_f64 {
-            let jito_tip2_instruction =
-                system_instruction::transfer(&keypair.pubkey(), &tip1_account, tip_value_lamports);
-            instructions.push(jito_tip2_instruction);
-        }
 
         // send init tx
         let recent_blockhash = client.get_latest_blockhash()?;
@@ -189,7 +156,7 @@ pub async fn new_signed_and_send(
         let start_time = Instant::now();
 
         let jito_client = Arc::new(JitoClient::new(
-            format!("{}/api/v1/transactions", *jito::BLOCK_ENGINE_URL).as_str(),
+            format!("{}/api/v1/transactions", jito_url).as_str(),
         ));
         let sig = match jito_client.send_transaction(&txn).await {
             Ok(signature) => signature,

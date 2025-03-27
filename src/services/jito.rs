@@ -4,15 +4,10 @@ use rand::{seq::IteratorRandom, thread_rng};
 use serde::Deserialize;
 use serde_json::Value;
 use solana_sdk::pubkey::Pubkey;
-use std::{future::Future, str::FromStr, sync::LazyLock, time::Duration};
+use std::{future::Future, str::FromStr, time::Duration};
 use tokio::time::{sleep, Instant};
 
-use crate::common::config::import_env_var;
-
-pub static BLOCK_ENGINE_URL: LazyLock<String> =
-    LazyLock::new(|| import_env_var("JITO_BLOCK_ENGINE_URL"));
-
-pub fn get_tip_account() -> Result<(Pubkey, Pubkey)> {
+pub fn get_tip_account() -> Result<Pubkey> {
     let accounts = [
         "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5".to_string(),
         "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt".to_string(),
@@ -30,31 +25,8 @@ pub fn get_tip_account() -> Result<(Pubkey, Pubkey)> {
         })?),
         None => Err(anyhow!("jito: no tip accounts available")),
     };
-    let tip1_account = Pubkey::from_str("JitoeXtK422HePQYk2K4uQhackGVUD26HMNFNSZDEGa")
-        .inspect_err(|err| {
-            println!("jito: failed to parse Pubkey: {:?}", err);
-        })?;
     let tip_account = tip_account?;
-    Ok((tip_account, tip1_account))
-}
-
-// unit sol
-pub async fn get_tip_value() -> Result<f64> {
-    // If TIP_VALUE is set, use it
-    if let Ok(tip_value) = std::env::var("JITO_TIP_VALUE") {
-        match f64::from_str(&tip_value) {
-            Ok(value) => Ok(value),
-            Err(_) => {
-                println!(
-                    "Invalid JITO_TIP_VALUE in environment variable: '{}'. Falling back to percentile calculation.",
-                    tip_value
-                );
-                Err(anyhow!("Invalid TIP_VALUE in environment variable"))
-            }
-        }
-    } else {
-        Err(anyhow!("JITO_TIP_VALUE environment variable not set"))
-    }
+    Ok(tip_account)
 }
 
 #[derive(Deserialize, Debug)]

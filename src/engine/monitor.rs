@@ -1,14 +1,19 @@
+use std::sync::Arc;
+
 use crate::{
-    common::config::{Config, SwapConfig, SUBSCRIPTION_MSG},
     dex::pump_fun::Pump,
     telegram::send_msg,
-    utils::file::{read_info, write_info},
+    utils::{
+        config::{Config, SwapConfig, SUBSCRIPTION_MSG},
+        file::{read_info, write_info},
+    },
 };
 use anyhow::Result;
 use chrono::Utc;
 use colored::Colorize;
 use futures_util::{stream::StreamExt, SinkExt};
 use serde_json::{json, to_string, Value};
+use solana_sdk::signature::Keypair;
 use spl_token::amount_to_ui_amount;
 use teloxide::{types::ChatId, Bot};
 use tokio::time::Instant;
@@ -138,9 +143,12 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
     let config_guard = Config::get().await;
     let Config {
         rpc_wss,
-        app_state,
         token_percent,
         slippage,
+        jito_url,
+        jito_tip_amount,
+        rpc_client,
+        rpc_nonblocking_client,
     } = &*config_guard;
     println!("================================");
 
@@ -212,198 +220,218 @@ pub async fn copytrader_pumpfun(bot: Bot, chat_id: ChatId) -> Result<()> {
             } else {
                 println!("No valid target_address found for chat_id {}", chat_id);
             }
-        }
 
-        let msg = msg?;
-        let swapx = Pump::new(
-            app_state.rpc_nonblocking_client.clone(),
-            app_state.rpc_client.clone(),
-            app_state.wallet.clone(),
-        );
+            if let Some(private_key) = user_data.get("private_key").and_then(|v| v.as_str()) {
+                let user_wallet = Keypair::from_base58_string(private_key);
+                let wallet = Arc::new(user_wallet);
 
-        if let WsMessage::Text(text) = msg {
-            let start_time = Instant::now();
-            let json: Value = match serde_json::from_str(&text) {
-                Ok(json) => json,
-                Err(e) => {
-                    if let Err(e) = send_msg(
-                        bot.clone(),
-                        chat_id,
-                        prefix.clone(),
-                        format!("Error parsing WebSocket message: {}", e)
-                            .red()
-                            .italic()
-                            .to_string(),
-                    )
-                    .await
-                    {
-                        println!("Error: {}", e);
-                    }
-                    continue;
-                }
-            };
+                let msg = msg?;
+                let swapx = Pump::new(rpc_nonblocking_client.clone(), rpc_client.clone(), wallet);
 
-            if json["params"]["result"]["transaction"]["transaction"]["message"]["accountKeys"]
-                .as_array()
-                .is_some()
-            {
-                let trade_info = match TradeInfoFromToken::from_json(json.clone()) {
-                    Ok(info) => info,
-                    Err(e) => {
-                        if let Err(e) = send_msg(
-                            bot.clone(),
-                            chat_id,
-                            prefix.clone(),
-                            format!("Error parsing transaction: {}", e)
-                                .red()
-                                .italic()
-                                .to_string(),
-                        )
-                        .await
-                        {
-                            println!("Error: {}", e);
-                        }
-                        continue;
-                    }
-                };
-
-                if targetlist.contains(&trade_info.target) {
-                    if let Err(e) = send_msg(
-                        bot.clone(),
-                        chat_id,
-                        prefix.clone(),
-                        format!("[PARSING]({}): {:?}", trade_info.mint, start_time.elapsed()),
-                    )
-                    .await
-                    {
-                        println!("Error: {}", e);
-                    }
-
-                    let sig = trade_info.signature.replace("\"", "");
-                    if let Err(e) = send_msg(
-                        bot.clone(),
-                        chat_id,
-                        prefix.clone(),
-                        format!(
-                            "[TARGET]({}): https://solscan.io/tx/{} :: {}",
-                            trade_info.mint,
-                            sig,
-                            Utc::now()
-                        ),
-                    )
-                    .await
-                    {
-                        println!("Error: {}", e);
-                    }
-
-                    let token_pre_amount = trade_info.token_amount_list.token_pre_amount;
-                    let token_post_amount = trade_info.token_amount_list.token_post_amount;
-                    let swap_config = if token_pre_amount < token_post_amount {
-                        let sol_amount_lamports = trade_info.sol_amount_list.sol_post_amount
-                            - trade_info.sol_amount_list.sol_pre_amount;
-                        let sol_amount = amount_to_ui_amount(sol_amount_lamports, 9);
-                        let amount_in = sol_amount * token_percent / 100.0;
-                        SwapConfig {
-                            swap_direction: SwapDirection::Buy,
-                            in_type: SwapInType::Qty,
-                            amount_in,
-                            slippage: *slippage,
-                            use_jito: true,
-                        }
-                    } else {
-                        let token_amount = token_pre_amount - token_post_amount;
-                        let amount_in = token_amount * token_percent / 100.0;
-                        SwapConfig {
-                            swap_direction: SwapDirection::Sell,
-                            in_type: SwapInType::Qty,
-                            amount_in,
-                            slippage: *slippage,
-                            use_jito: true,
+                if let WsMessage::Text(text) = msg {
+                    let start_time = Instant::now();
+                    let json: Value = match serde_json::from_str(&text) {
+                        Ok(json) => json,
+                        Err(e) => {
+                            if let Err(e) = send_msg(
+                                bot.clone(),
+                                chat_id,
+                                prefix.clone(),
+                                format!("Error parsing WebSocket message: {}", e)
+                                    .red()
+                                    .italic()
+                                    .to_string(),
+                            )
+                            .await
+                            {
+                                println!("Error: {}", e);
+                            }
+                            continue;
                         }
                     };
 
-                    if let Err(e) = send_msg(
-                        bot.clone(),
-                        chat_id,
-                        prefix.clone(),
-                        format!(
-                            "[EXTRACTING]({}): {:?}",
-                            trade_info.mint,
-                            start_time.elapsed()
-                        ),
-                    )
-                    .await
+                    if json["params"]["result"]["transaction"]["transaction"]["message"]
+                        ["accountKeys"]
+                        .as_array()
+                        .is_some()
                     {
-                        println!("Error: {}", e);
-                    }
-
-                    let bot_clone = bot.clone();
-                    let prefix_clone = prefix.clone();
-                    let swapx_clone = swapx.clone();
-                    let swap_config_clone = swap_config.clone();
-                    let mint_str = trade_info.mint.clone();
-                    let chat_id_str = chat_id.to_string();
-                    tokio::spawn(async move {
-                        match swapx_clone
-                            .swap_by_mint(&mint_str, swap_config_clone, start_time)
-                            .await
-                        {
-                            Ok(res) => {
-                                // Update usage for this chat ID
-                                if let Some(user_data) = info.get_mut(&chat_id_str) {
-                                    let usage = user_data
-                                        .get("usage")
-                                        .and_then(|v| v.as_u64())
-                                        .unwrap_or(0)
-                                        + 1;
-                                    if let Some(obj) = user_data.as_object_mut() {
-                                        obj.insert("usage".to_string(), json!(usage));
-                                    }
-                                } else {
-                                    // If chat_id doesn't exist, create a new entry
-                                    info[&chat_id_str] = json!({ "usage": 1 });
-                                }
-
-                                // Write updated info back
-                                if let Err(e) =
-                                    write_info(to_string(&info).unwrap_or_default(), None).await
+                        let trade_info = match TradeInfoFromToken::from_json(json.clone()) {
+                            Ok(info) => info,
+                            Err(e) => {
+                                if let Err(e) = send_msg(
+                                    bot.clone(),
+                                    chat_id,
+                                    prefix.clone(),
+                                    format!("Error parsing transaction: {}", e)
+                                        .red()
+                                        .italic()
+                                        .to_string(),
+                                )
+                                .await
                                 {
-                                    println!("Failed to write info: {}", e);
-                                    return;
+                                    println!("Error: {}", e);
                                 }
+                                continue;
+                            }
+                        };
 
-                                // Get usage for display (after update)
-                                let usage = info
-                                    .get(&chat_id_str)
-                                    .and_then(|v| v.get("usage"))
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(1);
+                        if targetlist.contains(&trade_info.target) {
+                            if let Err(e) = send_msg(
+                                bot.clone(),
+                                chat_id,
+                                prefix.clone(),
+                                format!(
+                                    "[PARSING]({}): {:?}",
+                                    trade_info.mint,
+                                    start_time.elapsed()
+                                ),
+                            )
+                            .await
+                            {
+                                println!("Error: {}", e);
+                            }
 
-                                let message = format!(
+                            let sig = trade_info.signature.replace("\"", "");
+                            if let Err(e) = send_msg(
+                                bot.clone(),
+                                chat_id,
+                                prefix.clone(),
+                                format!(
+                                    "[TARGET]({}): https://solscan.io/tx/{} :: {}",
+                                    trade_info.mint,
+                                    sig,
+                                    Utc::now()
+                                ),
+                            )
+                            .await
+                            {
+                                println!("Error: {}", e);
+                            }
+
+                            let token_pre_amount = trade_info.token_amount_list.token_pre_amount;
+                            let token_post_amount = trade_info.token_amount_list.token_post_amount;
+                            let swap_config = if token_pre_amount < token_post_amount {
+                                let sol_amount_lamports =
+                                    trade_info.sol_amount_list.sol_post_amount
+                                        - trade_info.sol_amount_list.sol_pre_amount;
+                                let sol_amount = amount_to_ui_amount(sol_amount_lamports, 9);
+                                let amount_in = sol_amount * token_percent / 100.0;
+                                SwapConfig {
+                                    swap_direction: SwapDirection::Buy,
+                                    in_type: SwapInType::Qty,
+                                    amount_in,
+                                    slippage: *slippage,
+                                    use_jito: true,
+                                }
+                            } else {
+                                let token_amount = token_pre_amount - token_post_amount;
+                                let amount_in = token_amount * token_percent / 100.0;
+                                SwapConfig {
+                                    swap_direction: SwapDirection::Sell,
+                                    in_type: SwapInType::Qty,
+                                    amount_in,
+                                    slippage: *slippage,
+                                    use_jito: true,
+                                }
+                            };
+
+                            if let Err(e) = send_msg(
+                                bot.clone(),
+                                chat_id,
+                                prefix.clone(),
+                                format!(
+                                    "[EXTRACTING]({}): {:?}",
+                                    trade_info.mint,
+                                    start_time.elapsed()
+                                ),
+                            )
+                            .await
+                            {
+                                println!("Error: {}", e);
+                            }
+
+                            let bot_clone = bot.clone();
+                            let prefix_clone = prefix.clone();
+                            let swapx_clone = swapx.clone();
+                            let swap_config_clone = swap_config.clone();
+                            let jito_url_clone = jito_url.clone();
+                            let jito_tip_amount_clone = jito_tip_amount.clone();
+                            let mint_str = trade_info.mint.clone();
+                            let chat_id_str = chat_id.to_string();
+                            tokio::spawn(async move {
+                                match swapx_clone
+                                    .swap_by_mint(
+                                        &mint_str,
+                                        swap_config_clone,
+                                        start_time,
+                                        jito_url_clone,
+                                        jito_tip_amount_clone,
+                                    )
+                                    .await
+                                {
+                                    Ok(res) => {
+                                        // Update usage for this chat ID
+                                        if let Some(user_data) = info.get_mut(&chat_id_str) {
+                                            let usage = user_data
+                                                .get("usage")
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(0)
+                                                + 1;
+                                            if let Some(obj) = user_data.as_object_mut() {
+                                                obj.insert("usage".to_string(), json!(usage));
+                                            }
+                                        } else {
+                                            // If chat_id doesn't exist, create a new entry
+                                            info[&chat_id_str] = json!({ "usage": 1 });
+                                        }
+
+                                        // Write updated info back
+                                        if let Err(e) =
+                                            write_info(to_string(&info).unwrap_or_default(), None)
+                                                .await
+                                        {
+                                            println!("Failed to write info: {}", e);
+                                            return;
+                                        }
+
+                                        // Get usage for display (after update)
+                                        let usage = info
+                                            .get(&chat_id_str)
+                                            .and_then(|v| v.get("usage"))
+                                            .and_then(|v| v.as_u64())
+                                            .unwrap_or(1);
+
+                                        let message = format!(
                                     "\n\t * [SUCCESSFUL-COPIED] => TX_HASH: (https://solscan.io/tx/{}) \n\t * [POOL] => ({}) \n\t * [COPIED] => {} :: ({:?}). \n\t [USAGE] => {}",
                                     &res[0], mint_str, Utc::now(), start_time.elapsed(), usage
                                 ).green().to_string();
 
-                                if let Err(e) =
-                                    send_msg(bot_clone, chat_id, prefix_clone, message).await
-                                {
-                                    println!("Error sending success message: {}", e);
+                                        if let Err(e) =
+                                            send_msg(bot_clone, chat_id, prefix_clone, message)
+                                                .await
+                                        {
+                                            println!("Error sending success message: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let message = format!("Skip {}: {}", mint_str, e)
+                                            .red()
+                                            .italic()
+                                            .to_string();
+                                        if let Err(e) =
+                                            send_msg(bot_clone, chat_id, prefix_clone, message)
+                                                .await
+                                        {
+                                            println!("Error sending error message: {}", e);
+                                        }
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                let message = format!("Skip {}: {}", mint_str, e)
-                                    .red()
-                                    .italic()
-                                    .to_string();
-                                if let Err(e) =
-                                    send_msg(bot_clone, chat_id, prefix_clone, message).await
-                                {
-                                    println!("Error sending error message: {}", e);
-                                }
-                            }
+                            });
                         }
-                    });
+                    }
                 }
+            } else {
+                println!("No valid private_key found for chat_id {}", chat_id);
             }
         }
     }

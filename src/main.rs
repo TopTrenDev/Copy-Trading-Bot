@@ -1,9 +1,6 @@
 use raypump_copytrading_bot::{
-    common::{
-        config::{tg_bot, Config},
-        constants::RUN_MSG,
-    },
     telegram,
+    utils::{config::Config, constants::RUN_MSG, env::tg_bot},
 };
 
 #[tokio::main]

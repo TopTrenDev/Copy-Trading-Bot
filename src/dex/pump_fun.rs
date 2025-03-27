@@ -20,9 +20,9 @@ use spl_token_client::token::TokenError;
 use tokio::time::Instant;
 
 use crate::{
-    common::{config::SwapConfig, logger::Logger},
     core::{token, tx},
     engine::swap::{SwapDirection, SwapInType},
+    utils::{config::SwapConfig, logger::Logger},
 };
 pub const TEN_THOUSAND: u64 = 10000;
 pub const TOKEN_PROGRAM: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
@@ -61,6 +61,8 @@ impl Pump {
         mint_str: &str,
         swap_config: SwapConfig,
         start_time: Instant,
+        jito_url: String,
+        jito_tip_amount: f64,
     ) -> Result<Vec<String>> {
         let logger = Logger::new(format!(
             "[SWAP IN PUMPFUN BY MINT]({}:{:?}) => ",
@@ -78,6 +80,9 @@ impl Pump {
             SwapDirection::Buy => (native_mint, mint, PUMP_BUY_METHOD),
             SwapDirection::Sell => (mint, native_mint, PUMP_SELL_METHOD),
         };
+
+        println!("Token_in account: {}, {}", token_in, pump_method);
+
         let pump_program = Pubkey::from_str(PUMP_PROGRAM)?;
         let (bonding_curve, associated_bonding_curve, bonding_curve_account) =
             get_bonding_curve_account(self.rpc_client.clone().unwrap(), mint, pump_program).await?;
@@ -98,7 +103,7 @@ impl Pump {
         let mut create_instruction = None;
         let mut close_instruction = None;
 
-        let (amount_specified, amount_ui_pretty) = match swap_config.swap_direction {
+        let (amount_specified, _amount_ui_pretty) = match swap_config.swap_direction {
             SwapDirection::Buy => {
                 // Create base ATA if it doesn't exist.
                 match token::get_account_info(
@@ -156,6 +161,9 @@ impl Pump {
                             return Err(anyhow!(format!("{}", err)));
                         }
                     };
+
+                println!("in_account: {:?}, in_mint: {:?}", in_account, in_mint);
+
                 let amount = match swap_config.in_type {
                     SwapInType::Qty => {
                         ui_amount_to_amount(swap_config.amount_in, in_mint.base.decimals)
@@ -276,11 +284,11 @@ impl Pump {
             &(pump_method, token_amount, sol_amount_threshold),
             input_accouts,
         );
-        if swap_config.swap_direction == SwapDirection::Buy
-            && start_time.elapsed() > Duration::from_millis(700)
-        {
-            return Err(anyhow!("Long RPC Connection with Pool State."));
-        }
+        // if swap_config.swap_direction == SwapDirection::Buy
+        //     && start_time.elapsed() > Duration::from_millis(700)
+        // {
+        //     return Err(anyhow!("Long RPC Connection with Pool State."));
+        // }
         // build instructions
         let mut instructions = vec![];
         if let Some(create_instruction) = create_instruction {
@@ -297,6 +305,8 @@ impl Pump {
         }
         logger.log(format!("sending tx: {:?}", start_time.elapsed()));
         tx::new_signed_and_send(
+            jito_url,
+            jito_tip_amount,
             &client,
             &self.keypair,
             instructions,
@@ -359,7 +369,7 @@ pub async fn get_bonding_curve_account(
     let bonding_curve = get_pda(&mint, &program_id)?;
     let associated_bonding_curve = get_associated_token_address(&bonding_curve, &mint);
     let start_time = Instant::now();
-    println!("mint: {}, Start: {:?}", mint, start_time.elapsed());
+    // println!("mint: {}, Start: {:?}", mint, start_time.elapsed());
 
     let max_retries = 30;
     let time_exceed = 300;
@@ -368,7 +378,7 @@ pub async fn get_bonding_curve_account(
     let bonding_curve_data = loop {
         match rpc_client.get_account_data(&bonding_curve) {
             Ok(data) => {
-                println!("Data: {:?}", data);
+                // println!("Data: {:?}", data);
                 break data;
             }
             Err(err) => {

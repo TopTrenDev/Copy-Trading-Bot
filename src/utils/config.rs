@@ -43,6 +43,8 @@ impl Config {
                     commitment,
                     slippage,
                     token_percent,
+                    yellowstone_grpc_http,
+                    yellowstone_grpc_token,
                     jito_url,
                     jito_tip_amount,
                 ) = read_env();
@@ -64,6 +66,8 @@ impl Config {
                     rpc_nonblocking_client,
                     token_percent,
                     slippage,
+                    yellowstone_grpc_http,
+                    yellowstone_grpc_token,
                     jito_url,
                     jito_tip_amount,
                 })

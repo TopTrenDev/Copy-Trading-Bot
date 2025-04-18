@@ -7,7 +7,7 @@ pub fn import_env_var(key: &str) -> String {
     env::var(key).unwrap_or_else(|e| panic!("Environment variable {} is not set: {}", key, e))
 }
 
-pub fn read_env() -> (String, String, CommitmentConfig, u64, f64, String, f64) {
+pub fn read_env() -> (String, String, CommitmentConfig, u64, f64, String, String, String, f64) {
     let rpc_https = import_env_var("RPC_HTTPS");
     let rpc_wss = import_env_var("RPC_WSS");
     let commitment = match import_env_var("COMMITMENT").as_str() {
@@ -19,6 +19,8 @@ pub fn read_env() -> (String, String, CommitmentConfig, u64, f64, String, f64) {
     let token_percent = import_env_var("TOKEN_PERCENTAGE")
         .parse::<f64>()
         .unwrap_or(1.0);
+    let yellowstone_grpc_http = import_env_var("YELLOWSTONE_GRPC_HTTP");
+    let yellowstone_grpc_token = import_env_var("YELLOWSTONE_GRPC_TOKEN");
     let jito_url = import_env_var("JITO_BLOCK_ENGINE_URL");
     let jito_tip_amount = import_env_var("JITO_TIP_AMOUNT")
         .parse::<f64>()
@@ -30,6 +32,8 @@ pub fn read_env() -> (String, String, CommitmentConfig, u64, f64, String, f64) {
         commitment,
         slippage,
         token_percent,
+        yellowstone_grpc_http,
+        yellowstone_grpc_token,
         jito_url,
         jito_tip_amount,
     )

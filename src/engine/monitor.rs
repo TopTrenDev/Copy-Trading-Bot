@@ -18,6 +18,7 @@ use spl_token::amount_to_ui_amount;
 use teloxide::{types::ChatId, Bot};
 use tokio::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
+use yellowstone_grpc_client::{ClientTlsConfig, GeyserGrpcClient};
 
 use super::swap::{SwapDirection, SwapInType};
 

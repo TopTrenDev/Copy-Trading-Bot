@@ -71,6 +71,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 Please note that trading cryptocurrencies involves significant risk. This bot is designed for educational purposes and should not be considered as financial advice. Always trade responsibly and within your risk tolerance.
 
 ## Contact
-For support or inquiries, please contact [nikkimoreno7866@gmail.com].
+For support or inquiries, please contact [marekdvojak146@gmail.com].
 
 Happy trading! 🚀

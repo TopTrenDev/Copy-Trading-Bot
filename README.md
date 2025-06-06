@@ -1,76 +1,81 @@
-# Copy-Trading-Bot-V1-Rust
+# 🦀 Copy-Trading-Bot-V1-Rust
 
-Welcome to the **Copy-Trading-Bot-V1-Rust** project, a high-performance trading bot built using Rust for copy trading functionality. This bot allows users to automatically copy trades from professional traders and apply them to their own trading accounts.
+Welcome to **Copy-Trading-Bot-V1-Rust** — a blazing fast, reliable, and extensible copy-trading bot built in Rust 🦀. This bot enables users to automatically mirror the trades of professional traders in real-time across supported crypto exchanges.
 
-## Features
+---
 
-- **Copy-Trading**: Automatically copy trades from selected professional traders.
-- **Real-Time Sync**: Trade updates and executions are synchronized in real-time.
-- **Advanced Risk Management**: Customizable risk parameters for users to manage their exposure.
-- **Performance Analytics**: Detailed metrics and reporting on trading performance.
-- **Extensibility**: Easily extendable to integrate with different exchanges and trading strategies.
+## ✨ Features
 
-## Installation
+- 🔁 **Copy Trading** — Automatically replicate trades from selected pro traders
+- 🧠 **Real-Time Sync** — Trades are synced instantly with minimal latency
+- ⚙️ **Risk Management** — Fine-tune your position size, stop-loss, and exposure limits
+- 📊 **Performance Insights** — Track and analyze your copy-trading ROI and stats
+- 🔌 **Modular Integration** — Easily integrate multiple exchanges or plug in your own strategy layer
 
-### Prerequisites
+---
 
-- Rust programming language (version 1.60.0 or higher)
-- Cargo (Rust’s package manager) to manage dependencies and build the project
-- An API key for your exchange account (e.g., Binance, Kraken)
+## ⚡️ Getting Started
 
-### Setup
+### ✅ Prerequisites
 
-1. **Clone the repository:**
+- Rust ≥ `1.60.0`
+- [Cargo](https://doc.rust-lang.org/cargo/) (Rust's package manager)
+- API keys for your preferred exchange (e.g. Binance, Kraken)
+
+### 🚀 Installation
+
+1. **Clone the repo:**
 
    ```bash
    git clone https://github.com/TopTrenDev/Copy-Trading-Bot-V1-Rust.git
    cd Copy-Trading-Bot-V1-Rust
    ```
-   
+
 2. **Build the project:**
 
-   Install all dependencies and compile the code:
-  
-   ```bash
-   cargo build --release
-   ```
+```
+cargo build --release
+```
 
-3. **Configure your API keys:**
+3. **Configure your credentials:**
 
-   Create a .env file in the project root and add your exchange API keys:
+Create a .env file in the root directory:
 
-   ```bash
-   API_KEY=your_exchange_api_key
-   API_SECRET=your_exchange_api_secret
-   ```
-   
+```
+API_KEY=your_exchange_api_key
+API_SECRET=your_exchange_api_secret
+```
+
 4. **Run the bot:**
 
-   Start the bot:
+```
+cargo run
+```
 
-   ```bash
-   cargo run
-   ```
-   
-   The bot will begin copying trades according to the configuration.
+---
 
-## Configuration
+## ⚙️ Configuration
 
-To configure the bot, you need to modify the config.toml file in the config folder. The configuration file contains settings for:
+Edit the config/config.toml file to customize:
 
-**Trader Selection**: The professional traders from whom to copy trades.
+- 🎯 Trader Targets — Choose which trader(s) to copy
 
-**Risk Management**: Adjust risk parameters, such as position size and stop-loss.
+- 🛡 Risk Settings — Control max exposure, stop-loss %, leverage, and more
 
-**Exchanges**: Specify which exchanges to use and their API details.
+- 🔁 Exchange Info — Define supported exchanges and API endpoints
 
-## License
-This project is licensed under the MIT License - see the LICENSE file for details.
+---
 
-## Disclaimer
-Please note that trading cryptocurrencies involves significant risk. This bot is designed for educational purposes and should not be considered as financial advice. Always trade responsibly and within your risk tolerance.
+## ⚠️ Disclaimer
 
-## Contact
-For support or inquiries, please contact [marekdvojak146@gmail.com].
+This bot is provided **for educational and experimental purposes only**. Cryptocurrency trading carries significant risk, and past performance is not indicative of future results. Use at your own discretion and never invest more than you can afford to lose.
 
-Happy trading! 🚀
+---
+
+## 📬 Contact
+
+📢 **Discord:** [toptrendev](https://discord.com/users/648385188774019072)
+
+📢 **Twitter:** [toptrendev](https://x.com/toptrendev)
+
+📢 **Telegram:** [@toptrendev](https://t.me/toptrendev)
